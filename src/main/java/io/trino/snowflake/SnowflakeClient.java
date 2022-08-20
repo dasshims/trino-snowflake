@@ -124,7 +124,7 @@ public class SnowflakeClient
             IdentifierMapping identifierMapping)
     {
         //super(config, "`", connectionFactory);
-        super(config, "`", connectionFactory, queryBuilder, identifierMapping);
+        super(config, "\"", connectionFactory, queryBuilder, identifierMapping);
         this.jsonType = typeManager.getType(new TypeSignature(StandardTypes.JSON));
 
         this.connectorExpressionRewriter = JdbcConnectorExpressionRewriterBuilder.newBuilder()
