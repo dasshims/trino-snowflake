@@ -14,30 +14,33 @@
 package io.trino.snowflake;
 
 import com.google.inject.Binder;
-import com.google.inject.Module;
 import com.google.inject.Provides;
 import com.google.inject.Scopes;
 import com.google.inject.Singleton;
 import com.snowflake.client.jdbc.SnowflakeDriver;
+import io.airlift.configuration.AbstractConfigurationAwareModule;
 import io.trino.plugin.jdbc.BaseJdbcConfig;
 import io.trino.plugin.jdbc.ConnectionFactory;
-import io.trino.plugin.jdbc.DecimalConfig;
 import io.trino.plugin.jdbc.DecimalModule;
 import io.trino.plugin.jdbc.DriverConnectionFactory;
 import io.trino.plugin.jdbc.ForBaseJdbc;
 import io.trino.plugin.jdbc.JdbcClient;
-import io.trino.plugin.jdbc.TypeHandlingJdbcConfig;
+import io.trino.plugin.jdbc.JdbcJoinPushdownSupportModule;
+import io.trino.plugin.jdbc.JdbcStatisticsConfig;
 import io.trino.plugin.jdbc.credential.CredentialProvider;
+import io.trino.plugin.jdbc.ptf.Query;
+import io.trino.spi.ptf.ConnectorTableFunction;
 
 import java.sql.Driver;
 import java.sql.SQLException;
 import java.util.Properties;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.inject.multibindings.Multibinder.newSetBinder;
 import static io.airlift.configuration.ConfigBinder.configBinder;
 
 public class SnowflakeClientModule
-        implements Module
+        extends AbstractConfigurationAwareModule
 {
     private static void ensureCatalogIsEmpty(String connectionUrl)
     {
@@ -49,6 +52,18 @@ public class SnowflakeClientModule
         catch (SQLException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    @Override
+    protected void setup(Binder binder)
+    {
+        binder.bind(JdbcClient.class).annotatedWith(ForBaseJdbc.class).to(SnowflakeClient.class).in(Scopes.SINGLETON);
+        //configBinder(binder).bindConfig(MySqlJdbcConfig.class);
+        configBinder(binder).bindConfig(SnowflakeConfig.class);
+        configBinder(binder).bindConfig(JdbcStatisticsConfig.class);
+        install(new DecimalModule());
+        install(new JdbcJoinPushdownSupportModule());
+        newSetBinder(binder, ConnectorTableFunction.class).addBinding().toProvider(Query.class).in(Scopes.SINGLETON);
     }
 
     @Provides
@@ -106,14 +121,37 @@ public class SnowflakeClientModule
             }
         }
 
-        return new DriverConnectionFactory(
+        /*return new DriverConnectionFactory(
                 new SnowflakeDriver(),
                 config.getConnectionUrl(),
                 connectionProperties,
+                credentialProvider);*/
+        return new DriverConnectionFactory(
+                new SnowflakeDriver(),
+                config.getConnectionUrl(),
+                getConnectionProperties(snowflakeConfig),
                 credentialProvider);
     }
 
-    @Override
+    public static Properties getConnectionProperties(SnowflakeConfig mySqlConfig)
+    {
+        Properties connectionProperties = new Properties();
+        connectionProperties.setProperty("useInformationSchema", Boolean.toString(mySqlConfig.isDriverUseInformationSchema()));
+        connectionProperties.setProperty("useUnicode", "true");
+        connectionProperties.setProperty("characterEncoding", "utf8");
+        connectionProperties.setProperty("tinyInt1isBit", "false");
+        connectionProperties.setProperty("rewriteBatchedStatements", "true");
+        if (mySqlConfig.isAutoReconnect()) {
+            connectionProperties.setProperty("autoReconnect", String.valueOf(mySqlConfig.isAutoReconnect()));
+            connectionProperties.setProperty("maxReconnects", String.valueOf(mySqlConfig.getMaxReconnects()));
+        }
+        if (mySqlConfig.getConnectionTimeout() != null) {
+            connectionProperties.setProperty("connectTimeout", String.valueOf(mySqlConfig.getConnectionTimeout().toMillis()));
+        }
+        return connectionProperties;
+    }
+
+   /* @Override
     public void configure(Binder binder)
     {
         binder.bind(JdbcClient.class).annotatedWith(ForBaseJdbc.class).to(SnowflakeClient.class).in(Scopes.SINGLETON);
@@ -121,5 +159,5 @@ public class SnowflakeClientModule
         configBinder(binder).bindConfig(SnowflakeConfig.class);
         configBinder(binder).bindConfig(DecimalConfig.class);
         binder.install(new DecimalModule());
-    }
+    }*/
 }
